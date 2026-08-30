@@ -63,6 +63,11 @@ export interface VoiceOptions {
   dogJoke?: boolean;
   /** How often a joke is permitted when `dogJoke` is not given. */
   dogJokeRate?: number;
+  /**
+   * Words from this speaker's recent lines, named so the model steers off
+   * them. See `repetition.ts` — a model cannot see what it just wrote.
+   */
+  avoid?: string[];
 }
 
 /** The system prompt for one thing Gadi is being asked to say. */
@@ -72,9 +77,19 @@ export function gadiSystemPrompt({
   extra = [],
   dogJoke,
   dogJokeRate = DEFAULT_DOG_JOKE_RATE,
+  avoid = [],
 }: VoiceOptions): string {
   const joke = dogJoke ?? Math.random() < dogJokeRate;
-  return [`You are Gadi, ${setting}.`, GADI_CHARACTER, ...task, ...GADI_ALWAYS, ...extra, dogJokeRule(joke)].join(" ");
+  const steer = avoid.length ? [`Do not reuse these words from your recent lines: ${avoid.join(", ")}.`] : [];
+  return [
+    `You are Gadi, ${setting}.`,
+    GADI_CHARACTER,
+    ...task,
+    ...GADI_ALWAYS,
+    ...extra,
+    ...steer,
+    dogJokeRule(joke),
+  ].join(" ");
 }
 
 /**
