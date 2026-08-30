@@ -1,0 +1,18 @@
+{
+  "name": "@gadi/core",
+  "version": "0.1.0",
+  "description": "Gadi himself — the character, the rules that hold wherever he speaks, and the guards that keep a model honest. Shared by every game in the Gadi Universe.",
+  "license": "MIT",
+  "repository": "https://github.com/rbirnfeld/gadi-core",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "check": "npx tsx scripts/checkNumberGuard.ts",
+    "prepare": "npm run build"
+  },
+  "devDependencies": { "typescript": "^5.6.2" }
+}
