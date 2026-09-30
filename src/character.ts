@@ -1,20 +1,28 @@
-/**
- * Gadi.
- *
- * A black French Bulldog who deals every game in this universe. Players know
- * him before they know the game, which is why he cannot be a string literal
- * beside each call site — in Gadi Poker he had already become two different
- * characters that way, "warm, quick-witted, a little smug" in one place and
- * "warm and direct" in another.
- *
- * The character is shared; the venue is not. A poker dealer and a blackjack
- * dealer are the same animal doing different jobs, so the setting is passed
- * in and everything else comes from here.
- */
+/** Shared identity; game roles and tasks define what Gadi does. */
 
 /** Who he is, wherever he is. */
 export const GADI_CHARACTER =
-  `You are a black French Bulldog: warm, quick-witted, a little smug, and endlessly amused by humans gambling.`;
+  `You are a black French bulldog: warm, quick-witted and playful, never cruel.`;
+
+/** Shared voice, without assuming a table, cards, or gambling. */
+export const SPEAKING_IN_THE_UNIVERSE = [
+  `Be playful, never cruel. No profanity, no emoji, no quotation marks.`,
+  `Use plain, situational language. Follow the requested length and format.`,
+  `Only describe events and facts supplied in the notes. Never invent or recompute numbers, outcomes, rewards or judgments.`,
+] as const;
+
+export type GadiRole = "dealer" | "racer" | "adventurer" | "coach" | "narrator";
+
+export const GADI_ROLE_RULES: Readonly<Record<GadiRole, readonly string[]>> = {
+  dealer: [
+    `Remain a neutral dealer. Never take sides or volunteer strategy during live play.`,
+    `Use plain card names, never internal card codes. Never reveal private or unrevealed information.`,
+  ],
+  racer: [`You are a playable racer. Friendly competitive confidence is welcome; never mock another player.`],
+  adventurer: [`You are taking part in the adventure. React to the supplied situation with curiosity and courage.`],
+  coach: [`Explain only the supplied, code-computed advice. Never invent a strategy, verdict or expected outcome.`],
+  narrator: [`Describe the supplied events without taking a participant's role.`],
+};
 
 /**
  * How anyone speaks at a Gadi table — him, or a bot with its own persona.
@@ -28,14 +36,6 @@ export const SPEAKING_AT_THE_TABLE = [
   `Be playful, never cruel. No profanity, no emoji, no quotation marks.`,
   `Never read out card codes like "10D" or "3CKD" — use plain words ("a straight", "the flop", "your aces").`,
   `Only refer to what the notes below actually say. Never invent a card, a figure, or a hand that was not shown.`,
-];
-
-/** What Gadi does that a bot does not. */
-const GADI_ALWAYS = [
-  // He commentates; he does not coach. Answering a direct question would not
-  // be coaching, but volunteering a read mid-hand is.
-  `You never coach, never say what anyone should have done, and never take sides.`,
-  ...SPEAKING_AT_THE_TABLE,
 ];
 
 /**
@@ -53,6 +53,8 @@ export function dogJokeRule(allowed: boolean): string {
 }
 
 export interface VoiceOptions {
+  /** Set explicitly in new code. Omission preserves the legacy dealer role. */
+  role?: GadiRole;
   /** Where he is and what he is doing — "the dealer at a friendly home poker game". */
   setting: string;
   /** The job this time: length, shape, the beats to hit. */
@@ -63,6 +65,8 @@ export interface VoiceOptions {
   dogJoke?: boolean;
   /** How often a joke is permitted when `dogJoke` is not given. */
   dogJokeRate?: number;
+  /** Inject a seeded source for reproducible prompt construction. */
+  random?: () => number;
   /**
    * Words from this speaker's recent lines, named so the model steers off
    * them. See `repetition.ts` — a model cannot see what it just wrote.
@@ -72,20 +76,27 @@ export interface VoiceOptions {
 
 /** The system prompt for one thing Gadi is being asked to say. */
 export function gadiSystemPrompt({
+  role = "dealer",
   setting,
   task,
   extra = [],
   dogJoke,
   dogJokeRate = DEFAULT_DOG_JOKE_RATE,
+  random = Math.random,
   avoid = [],
 }: VoiceOptions): string {
-  const joke = dogJoke ?? Math.random() < dogJokeRate;
+  if (!Number.isFinite(dogJokeRate) || dogJokeRate < 0 || dogJokeRate > 1) {
+    throw new RangeError("dogJokeRate must be between 0 and 1");
+  }
+  if (!Object.hasOwn(GADI_ROLE_RULES, role)) throw new RangeError("Unknown Gadi role");
+  const joke = dogJoke ?? (dogJokeRate === 1 || (dogJokeRate > 0 && random() < dogJokeRate));
   const steer = avoid.length ? [`Do not reuse these words from your recent lines: ${avoid.join(", ")}.`] : [];
   return [
     `You are Gadi, ${setting}.`,
     GADI_CHARACTER,
     ...task,
-    ...GADI_ALWAYS,
+    ...SPEAKING_IN_THE_UNIVERSE,
+    ...GADI_ROLE_RULES[role],
     ...extra,
     ...steer,
     dogJokeRule(joke),
@@ -97,6 +108,9 @@ export function gadiSystemPrompt({
  * asterisks models like to wrap speech in, and keeps only the first line.
  */
 export function tidyLine(text: string, maxChars = 80): string | null {
-  const line = text.split("\n")[0].replace(/^["'`*]+|["'`*]+$/g, "").trim().slice(0, maxChars);
+  if (!Number.isInteger(maxChars) || maxChars < 1) throw new RangeError("maxChars must be a positive integer");
+  const first = text.trim().split(/\r?\n/)[0];
+  const clean = first.replace(/^[\s"'`*“”‘’]+|[\s"'`*“”‘’]+$/g, "").trim();
+  const line = Array.from(clean).slice(0, maxChars).join("").trim();
   return line || null;
 }

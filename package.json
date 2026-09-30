@@ -1,18 +1,34 @@
 {
   "name": "@gadi/core",
-  "version": "0.1.0",
-  "description": "Gadi himself — the character, the rules that hold wherever he speaks, and the guards that keep a model honest. Shared by every game in the Gadi Universe.",
+  "version": "0.2.0",
+  "description": "Shared Gadi character roles, dialogue validation, numeric claim screening and bounded speaker memory. No runtime dependencies.",
   "license": "MIT",
   "repository": "https://github.com/rbirnfeld/gadi-core",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
   "scripts": {
     "build": "tsc -b",
-    "check": "npx tsx scripts/checkNumberGuard.ts",
-    "prepare": "npm run build"
+    "check": "npm run build && npm run check:types && node --test tests/*.test.mjs",
+    "prepare": "npm run build",
+    "test": "npm run check",
+    "prepack": "npm run check",
+    "check:types": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext tests/consumer.mts"
   },
-  "devDependencies": { "typescript": "^5.6.2" }
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

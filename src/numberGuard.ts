@@ -1,81 +1,83 @@
-/**
- * Catching a model that made a number up.
- *
- * Instructing a model not to invent figures works most of the time, and the
- * failures are the expensive kind: a review that confidently reports a
- * twenty-five coin win on a session that finished level reads exactly like a
- * true one. Every time one slipped through the answer was another line of
- * prompt — "never write a minus sign", "never say all-in unless the notes
- * say so" — which is whack-a-mole. This is the general form: throw out any
- * line stating a figure that was not in the facts it was given.
- */
+/** English numeric-claim screening, not semantic fact verification. */
+const UNITS: Record<string, number> = Object.fromEntries(
+  "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen"
+    .split(" ").map((word, value) => [word, value]),
+);
+const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+const SCALES: Record<string, number> = { thousand: 1000, million: 1e6, billion: 1e9 };
+const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12 };
 
-const UNITS: Record<string, number> = {
-  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
-  eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
-  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
-  nineteen: 19,
-};
+function lookup(values: Record<string, number>, key: string): number | undefined {
+  return Object.hasOwn(values, key) ? values[key] : undefined;
+}
 
-const TENS: Record<string, number> = {
-  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70,
-  eighty: 80, ninety: 90,
-};
-
-/**
- * Below this, a number in prose is idiom rather than a claim. "two pair",
- * "one of your calls", "a couple of hands" — guarding those throws away
- * accurate reviews to catch nothing. Everything that matters here is above
- * it: chip amounts, percentages, hand numbers, and every board total worth
- * arguing about.
- */
+/** Legacy poker idiom tolerance. Use minimum: 0 for ranks, laps and medals. */
 export const GUARDED_FROM = 10;
+export interface NumberGuardOptions {
+  /** Minimum absolute magnitude challenged; zero includes every parsed value. */
+  minimum?: number;
+}
 
+/**
+ * Recognizes signed decimal digits, grouped thousands, numeric ordinals,
+ * English cardinals through billions, and first–twelfth. Decimal point is '.',
+ * comma is a thousands separator. Not a locale-aware parser; dates, fractions,
+ * scientific notation and arbitrary prose arithmetic are not supported.
+ */
 export function numbersIn(text: string): Set<number> {
   const found = new Set<number>();
-  const normalised = text
-    .toLowerCase()
-    // 2,382 is one number. Without this it reads as 2 and 382, and 382 looks
-    // invented — poker deals in thousands, so this is not an edge case.
-    //
-    // The separator is not always a comma. A model writing 8 818 with a
-    // NARROW NO-BREAK SPACE (U+202F) — the typographic thousands separator —
-    // had an entirely accurate review thrown out for inventing 818 and 645.
-    // Nothing about that is visible on screen, which is what makes it worth
-    // handling rather than hoping about: regular, no-break, thin and narrow
-    // no-break spaces, and the Swiss apostrophe.
-    .replace(/(\d)[,\u0020\u00a0\u2009\u202f\u2019'](?=\d{3}\b)/g, "$1")
-    // Hyphens and dashes separate words, not digits.
-    .replace(/[‐-―-]/g, " ");
-
-  for (const match of normalised.matchAll(/\d+/g)) found.add(Number(match[0]));
-
-  const words = normalised.split(/[^a-z]+/).filter(Boolean);
-  for (let i = 0; i < words.length; i++) {
-    const tens = TENS[words[i]];
-    if (tens !== undefined) {
-      // "seventy three" is one number, and it is not seventy either.
-      const unit = UNITS[words[i + 1]];
-      if (unit !== undefined && unit >= 1 && unit <= 9) {
-        found.add(tens + unit);
-        i++;
-        continue;
-      }
-      found.add(tens);
-      continue;
-    }
-    const unit = UNITS[words[i]];
-    if (unit !== undefined) found.add(unit);
+  const normalised = text.toLowerCase().replace(/\u2212/g, "-")
+    .replace(/\d{1,3}(?:[,\u0020\u00a0\u2009\u202f\u2019']\d{3})+(?!\d)/g,
+      (group) => group.replace(/[,\s\u2009\u202f\u2019']/g, ""));
+  for (const match of normalised.matchAll(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:st|nd|rd|th)?/g)) {
+    const value = Number(match[0].replace(/(?:st|nd|rd|th)$/, ""));
+    if (Number.isFinite(value)) found.add(value);
   }
-
+  const words = normalised.replace(/[‐-―-]/g, " ").split(/[^a-z]+/).filter(Boolean);
+  for (let i = 0; i < words.length; i++) {
+    let j = i;
+    let sign = 1;
+    if (words[j] === "minus" || words[j] === "negative") { sign = -1; j++; }
+    let total = 0;
+    let group = 0;
+    let seen = false;
+    let last = "";
+    for (; j < words.length; j++) {
+      const word = words[j];
+      const unit = lookup(UNITS, word);
+      const tens = lookup(TENS, word);
+      if (unit !== undefined || tens !== undefined) {
+        // Adjacent independent numbers must not be added together ("one two").
+        if (last === "unit" || (last === "tens" && (unit === undefined || unit < 1 || unit > 9))) break;
+        group += unit ?? tens!;
+        last = tens !== undefined ? "tens" : "unit";
+        seen = true;
+      } else if (word === "hundred" && last === "unit" && group > 0 && group < 10) {
+        group *= 100;
+        last = "scale";
+      } else if (lookup(SCALES, word) !== undefined && seen && group > 0) {
+        total += group * lookup(SCALES, word)!;
+        group = 0;
+        last = "scale";
+      } else if (word === "and" && last === "scale" && (lookup(UNITS, words[j + 1]) !== undefined || lookup(TENS, words[j + 1]) !== undefined)) {
+        continue;
+      } else break;
+    }
+    if (seen) {
+      found.add(sign * (total + group));
+      i = j - 1;
+    } else if (lookup(ORDINALS, words[i]) !== undefined) {
+      found.add(lookup(ORDINALS, words[i])!);
+    }
+  }
   return found;
 }
 
-/** Guarded figures in `line` that the facts never mentioned. */
-export function unknownNumbersIn(line: string, allowed: Set<number>): number[] {
-  return [...numbersIn(line)].filter((n) => n >= GUARDED_FROM && !allowed.has(n));
+/** A matching value cannot establish its owner, unit, event, or meaning. */
+export function unknownNumbersIn(line: string, allowed: ReadonlySet<number>, { minimum = GUARDED_FROM }: NumberGuardOptions = {}): number[] {
+  if (!Number.isFinite(minimum) || minimum < 0) throw new RangeError("minimum must be finite and nonnegative");
+  return [...numbersIn(line)].filter((n) => Math.abs(n) >= minimum && !allowed.has(n));
 }
-
-export function inventsNumbers(line: string, facts: string): boolean {
-  return unknownNumbersIn(line, numbersIn(facts)).length > 0;
+export function inventsNumbers(line: string, facts: string, options?: NumberGuardOptions): boolean {
+  return unknownNumbersIn(line, numbersIn(facts), options).length > 0;
 }

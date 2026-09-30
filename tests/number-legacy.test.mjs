@@ -6,10 +6,14 @@
  * "two pair". The threshold is the whole design, so it is checked from both
  * sides.
  */
-import { GUARDED_FROM, inventsNumbers, numbersIn, unknownNumbersIn } from "../src/numberGuard.js";
-import { check, checkTrue, done } from "./check.js";
+import { GUARDED_FROM, inventsNumbers, numbersIn, unknownNumbersIn } from "../dist/numberGuard.js";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+const check = (label, actual, expected) => test(label, () => assert.equal(actual, expected));
+const checkTrue = (label, actual) => check(label, actual, true);
+const done = () => {};
 
-const of = (text: string) => [...numbersIn(text)].sort((a, b) => a - b).join(",");
+const of = (text) => [...numbersIn(text)].sort((a, b) => a - b).join(",");
 
 console.log("\ndigits");
 check("plain", of("you lost 1288 chips"), "1288");
